@@ -5,7 +5,7 @@ from datetime import datetime
 from matplotlib.backends.backend_pdf import PdfPages
 
 # Load data from CSV
-filename = "data/sensor_readings_2024-12-22_01-33-36.csv"  # Adjust the file path if necessary
+filename = "data/perfume_sensor_readings_2024-12-22_22-23-58.csv"  # Adjust the file path if necessary
 df = pd.read_csv(filename)
 
 # Parse the 'DateTime' column to datetime
