@@ -802,3 +802,182 @@ void loop() {
   }
 }
 
+## cursor display
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+// OLED display size
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Button pins
+const int UP_BUTTON = 6;
+const int DOWN_BUTTON = 7;
+const int SELECT_BUTTON = 8;
+const int BACK_BUTTON = 9;
+
+// Sensor pins
+const int TEMP_SENSOR = A0;  // Example: LM35 connected to A0
+const int FIRE_SENSOR = A1;  // Example: Flame sensor connected to A1
+const int DUST_SENSOR = A2;  // Example: Dust sensor connected to A2
+const int GAS_SENSOR = A3;   // Example: MQ series gas sensor connected to A3
+
+// Menu variables
+const char* menuItems[] = {"Temperature", "Fire Sensor", "Dust Sensor", "Gas Sensor", "Humidity", "Pressure"};
+const int totalMenuItems = sizeof(menuItems) / sizeof(menuItems[0]);
+int menuIndex = 0;       // Current selection
+int menuOffset = 0;      // Starting item in the visible list
+const int visibleMenuItems = 4; // Number of items visible at a time
+bool inSubMenu = false;
+
+void setup() {
+  // Initialize the display
+  if (!display.begin(0x3C)) { // Adjust I2C address if necessary
+    for (;;); // Stop if OLED is not found
+  }
+  display.clearDisplay();
+  display.display();
+
+  // Initialize buttons
+  pinMode(UP_BUTTON, INPUT_PULLUP);
+  pinMode(DOWN_BUTTON, INPUT_PULLUP);
+  pinMode(SELECT_BUTTON, INPUT_PULLUP);
+  pinMode(BACK_BUTTON, INPUT_PULLUP);
+
+  // Display the main menu
+  showMenu();
+}
+
+void loop() {
+  // Navigation and menu logic
+  if (!inSubMenu) {
+    // Main menu navigation
+    if (digitalRead(UP_BUTTON) == LOW) {
+      menuIndex = (menuIndex > 0) ? menuIndex - 1 : totalMenuItems - 1; // Wrap-around
+      updateMenuOffset();
+      showMenu();
+      delay(200);
+    }
+    if (digitalRead(DOWN_BUTTON) == LOW) {
+      menuIndex = (menuIndex < totalMenuItems - 1) ? menuIndex + 1 : 0; // Wrap-around
+      updateMenuOffset();
+      showMenu();
+      delay(200);
+    }
+    if (digitalRead(SELECT_BUTTON) == LOW) {
+      inSubMenu = true;
+      showSubMenu(menuIndex);
+      delay(200);
+    }
+  } else {
+    // Submenu logic
+    if (digitalRead(BACK_BUTTON) == LOW) {
+      inSubMenu = false;
+      showMenu();
+      delay(200);
+    }
+  }
+}
+
+void updateMenuOffset() {
+  // Adjust the menu offset for scrolling
+  if (menuIndex < menuOffset) {
+    menuOffset = menuIndex;
+  } else if (menuIndex >= menuOffset + visibleMenuItems) {
+    menuOffset = menuIndex - visibleMenuItems + 1;
+  }
+}
+
+void showMenu() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+  display.println("Main Menu:");
+
+  // Display visible menu items
+  int maxTextWidth = 0;
+  for (int i = 0; i < visibleMenuItems; i++) {
+    int itemIndex = menuOffset + i;
+    if (itemIndex >= totalMenuItems) break; // Prevent overflow
+
+    // Get the width of the current menu item
+    int16_t x1, y1, textWidth, textHeight;
+    display.getTextBounds(menuItems[itemIndex], 0, 0, &x1, &y1, &textWidth, &textHeight); // Get text width and height
+    
+    if (textWidth > maxTextWidth) maxTextWidth = textWidth;
+
+    if (itemIndex == menuIndex) {
+      display.print("> "); // Highlight the current selection
+    } else {
+      display.print("  ");
+    }
+    display.println(menuItems[itemIndex]);
+  }
+
+  // Draw the scroll bar on the right side with reduced width
+  int scrollBarWidth = 3;  // Reduced width of the scroll bar
+  int scrollBarHeight = (maxTextWidth * SCREEN_HEIGHT) / totalMenuItems;  // Size of the scroll bar based on text width
+  int scrollBarPosition = (menuIndex * SCREEN_HEIGHT) / totalMenuItems;  // Scroll bar position
+
+  // Draw the border of the scroll bar with the reduced width
+  display.drawRect(SCREEN_WIDTH - scrollBarWidth, 0, scrollBarWidth, SCREEN_HEIGHT, SH110X_WHITE);  // Scroll bar border
+  // Fill the scroll bar with the reduced width
+  display.fillRect(SCREEN_WIDTH - scrollBarWidth, scrollBarPosition, scrollBarWidth, scrollBarHeight, SH110X_WHITE);  // Scroll bar fill
+
+  display.display();
+}
+
+void showSubMenu(int index) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+
+  switch (index) {
+    case 0:
+      display.println("Temperature:");
+      display.print("Value: ");
+      display.print(readTemperature());
+      display.println(" C");
+      break;
+    case 1:
+      display.println("Fire Sensor:");
+      display.print("Value: ");
+      display.println(analogRead(FIRE_SENSOR));
+      break;
+    case 2:
+      display.println("Dust Sensor:");
+      display.print("Value: ");
+      display.println(analogRead(DUST_SENSOR));
+      break;
+    case 3:
+      display.println("Gas Sensor:");
+      display.print("Value: ");
+      display.println(analogRead(GAS_SENSOR));
+      break;
+    case 4:
+      display.println("Humidity:");
+      display.print("Value: ");
+      display.println("50%"); // Replace with actual humidity reading
+      break;
+    case 5:
+      display.println("Pressure:");
+      display.print("Value: ");
+      display.println("1013 hPa"); // Replace with actual pressure reading
+      break;
+  }
+
+  display.println("Press BACK to exit");
+  display.display();
+}
+
+float readTemperature() {
+  // Example: LM35 sensor. Adjust calculation based on your sensor.
+  int raw = analogRead(TEMP_SENSOR);
+  return raw * (5.0 / 1023.0) * 100.0;
+}
+
