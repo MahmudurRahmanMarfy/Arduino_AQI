@@ -1065,185 +1065,201 @@
 //	counter = (counter + 1) % 28; // increase the counter, but always go between 0-27
 //}
 //
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <Wire.h>
 
-// OLED display size
+// Define OLED display dimensions
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Button pins
-const int UP_BUTTON = 6;
-const int DOWN_BUTTON = 7;
-const int SELECT_BUTTON = 8;
-const int BACK_BUTTON = 9;
+// Pin definitions for sensors and buttons
+#define FLAME_PIN A0         // Flame sensor connected to analog pin A0
+#define MQ5_PIN A1           // MQ5 gas sensor connected to analog pin A1
+#define MQ8_PIN A2           // MQ8 gas sensor connected to analog pin A2
+#define MQ7_PIN A3           // MQ7 gas sensor connected to analog pin A3
+#define MQ135_PIN A4         // MQ135 gas sensor connected to analog pin A4
+#define BUTTON_UP_PIN 2      // Button for up navigation (connected to pin 2)
+#define BUTTON_DOWN_PIN 3    // Button for down navigation (connected to pin 3)
+#define BUTTON_SELECT_PIN 4  // Select button (connected to pin 4)
+#define BUTTON_BACK_PIN 5    // Back button (connected to pin 5)
 
-// Sensor pins
-const int TEMP_SENSOR = A0;  // Example: LM35 connected to A0
-const int FIRE_SENSOR = A1;  // Example: Flame sensor connected to A1
-const int DUST_SENSOR = A2;  // Example: Dust sensor connected to A2
-const int GAS_SENSOR = A3;   // Example: MQ series gas sensor connected to A3
+// Declare an SH110X display object (I2C interface)
+Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
-// Menu variables
-const char* menuItems[] = {"Temperature", "Fire Sensor", "Dust Sensor", "Gas Sensor", "Humidity", "Pressure"};
-const int totalMenuItems = sizeof(menuItems) / sizeof(menuItems[0]);
-int menuIndex = 0;       // Current selection
-int menuOffset = 0;      // Starting item in the visible list
-const int visibleMenuItems = 4; // Number of items visible at a time
-bool inSubMenu = false;
+// Variables to hold sensor data and menu navigation
+float aqiValue = 0;  // AQI level (based on MQ-135)
+bool flameDetected = false;
+int menuIndex = 0;   // Cursor for navigating the "All Sensors" menu
+const int menuItems = 4;  // Updated number of menu items (4 sensors)
+bool inSubMenu = false; // Flag to check if we are in a submenu
 
-// Function declarations
-void showMenu();
-void updateMenuOffset();
-void showSubMenu(int index);
-float readTemperature();
+// Function Declarations
+void displayMainMenu();
+void displaySubMenu();
+void displayCursor();
 
 void setup() {
-  // Initialize the display
-  if (!display.begin(0x3C)) { // Adjust I2C address if necessary
-    for (;;); // Stop if OLED is not found
+  // Initialize serial for debugging
+  Serial.begin(115200);
+  delay(100);
+
+  // Initialize the OLED display
+  if (!display.begin(0x3C)) { // Default I2C address is 0x3C
+    Serial.println(F("SH1106G allocation failed"));
+    for (;;);
   }
+
+  // Initialize button pins
+  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_SELECT_PIN, INPUT_PULLUP);  // Select button pin
+  pinMode(BUTTON_BACK_PIN, INPUT_PULLUP);    // Back button pin
+
+  // Clear the buffer
   display.clearDisplay();
-  display.display();
 
-  // Initialize buttons
-  pinMode(UP_BUTTON, INPUT_PULLUP);
-  pinMode(DOWN_BUTTON, INPUT_PULLUP);
-  pinMode(SELECT_BUTTON, INPUT_PULLUP);
-  pinMode(BACK_BUTTON, INPUT_PULLUP);
+  // Set text properties
+  display.setTextSize(1);      // Normal 1:1 pixel scale
+  display.setTextColor(SH110X_WHITE); // Draw white text
+  display.setCursor(0, 0);     // Start at top-left corner
 
-  // Display the main menu
-  showMenu();
+  // Display welcome message
+  display.println(F("Hello, BOTS!"));
+  display.display();          // Send buffer to the display
+
+  delay(2000);                // Pause for 2 seconds
 }
 
 void loop() {
-  // Navigation and menu logic
-  if (!inSubMenu) {
-    // Main menu navigation
-    if (digitalRead(UP_BUTTON) == LOW) {
-      menuIndex = (menuIndex > 0) ? menuIndex - 1 : totalMenuItems - 1; // Wrap-around
-      updateMenuOffset();
-      showMenu();
-      delay(200);
-    }
-    if (digitalRead(DOWN_BUTTON) == LOW) {
-      menuIndex = (menuIndex < totalMenuItems - 1) ? menuIndex + 1 : 0; // Wrap-around
-      updateMenuOffset();
-      showMenu();
-      delay(200);
-    }
-    if (digitalRead(SELECT_BUTTON) == LOW) {
-      inSubMenu = true;
-      showSubMenu(menuIndex);
-      delay(200);
-    }
+  // Handle button press for navigating the menu
+  if (digitalRead(BUTTON_UP_PIN) == LOW) {
+    menuIndex = (menuIndex - 1 + menuItems) % menuItems;  // Move cursor up
+    delay(200);  // Debounce delay
+  }
+
+  if (digitalRead(BUTTON_DOWN_PIN) == LOW) {
+    menuIndex = (menuIndex + 1) % menuItems;  // Move cursor down
+    delay(200);  // Debounce delay
+  }
+
+  // Handle Select button press (enter submenu or show sensor data)
+  if (digitalRead(BUTTON_SELECT_PIN) == LOW) {
+    inSubMenu = true;  // Enter submenu mode
+    delay(200);  // Debounce delay
+  }
+
+  // Handle Back button press (go back to main menu)
+  if (digitalRead(BUTTON_BACK_PIN) == LOW) {
+    inSubMenu = false;  // Exit submenu
+    delay(200);  // Debounce delay
+  }
+
+  // Display menu or submenu based on the state
+  display.clearDisplay();
+  display.setTextSize(1);
+
+  if (inSubMenu) {
+    displaySubMenu();  // Show the submenu for the selected sensor
   } else {
-    // Submenu logic
-    if (digitalRead(BACK_BUTTON) == LOW) {
-      inSubMenu = false;
-      showMenu();
-      delay(200);
-    }
+    displayMainMenu();  // Show the main menu
   }
+
+  display.display();
+  delay(100); // Small delay to make the loop more responsive
 }
 
-void updateMenuOffset() {
-  // Adjust the menu offset for scrolling
-  if (menuIndex < menuOffset) {
-    menuOffset = menuIndex;
-  } else if (menuIndex >= menuOffset + visibleMenuItems) {
-    menuOffset = menuIndex - visibleMenuItems + 1;
-  }
-}
-
-void showMenu() {
-  display.clearDisplay();
-  display.setTextSize(1);
+void displayMainMenu() {
   display.setTextColor(SH110X_WHITE);
   display.setCursor(0, 0);
-  display.println("Main Menu:");
+  display.print(F("AQI Value: "));
+  display.println(aqiValue);
 
-  // Display visible menu items
-  int16_t x1, y1, textWidth, textHeight; // Use int16_t for getTextBounds
-  int maxTextWidth = 0;
-  for (int i = 0; i < visibleMenuItems; i++) {
-    int itemIndex = menuOffset + i;
-    if (itemIndex >= totalMenuItems) break; // Prevent overflow
+  display.print(F("Flame Detected: "));
+  display.println(flameDetected ? F("YES") : F("NO"));
 
-    // Get the width of the current menu item
-    display.getTextBounds(menuItems[itemIndex], 0, 0, &x1, &y1, &textWidth, &textHeight); // Get text width and height
+  // Move "All Sensors Menu" up, reduce the gap
+  display.setCursor(0, 20);  // Move the "All Sensors Menu" up (y=30 instead of 40)
+  display.println(F("All Sensors Menu:"));  // Changed to "All Sensors Menu"
+  
+  // Display a cursor (indicating current selection)
+  displayCursor();
+}
+
+void displaySubMenu() {
+  // Display the selected sensor data or details
+  if (menuIndex == 0) {  // Flame Sensor selected
+    int flameIntensity = analogRead(FLAME_PIN);  // Read flame intensity (value between 0-1023)
+    display.setCursor(0, 20);
+    display.print(F("Flame Intensity: "));
+    display.println(flameIntensity);
+
+    // Optional: Display the flame intensity as a percentage (0-100%)
+    int flamePercentage = map(flameIntensity, 0, 1023, 0, 100);
+    display.print(F("Flame %: "));
+    display.print(flamePercentage);
+    display.println(F("%"));
+  }
+
+  if (menuIndex == 1) {  // Gas Sensor selected
+    display.setCursor(0, 20);
+    display.println(F("Gas Sensor Readings:"));
+
+    // MQ5 Sensor Reading
+    int mq5 = analogRead(MQ5_PIN);
+    display.print(F("MQ5: "));
+    display.println(mq5);
+
+    // MQ8 Sensor Reading
+    int mq8 = analogRead(MQ8_PIN);
+    display.print(F("MQ8: "));
+    display.println(mq8);
+
+    // MQ7 Sensor Reading
+    int mq7 = analogRead(MQ7_PIN);
+    display.print(F("MQ7: "));
+    display.println(mq7);
+
+    // MQ135 Sensor Reading
+    int mq135 = analogRead(MQ135_PIN);
+    display.print(F("MQ135: "));
+    display.println(mq135);
+  }
+  // Add similar logic for other sensors (DHT22, Dust)
+  if (menuIndex == 2) {  // DHT22 Sensor selected
+    display.setCursor(0, 20);
+    display.println(F("DHT22 Sensor Readings:"));
     
-    if (textWidth > maxTextWidth) maxTextWidth = textWidth;
+    display.println(F("Temperature: "));
+    display.println(F("Humidity: "));
+  }
+  if (menuIndex == 3) {  // Dust Sensor selected
+    display.setCursor(0, 20);
+    display.println(F("Dust Sensor Readings:"));
+    
+    display.println(F("PM25: "));
+    display.println(F("PM10: "));
+  }
+}
 
-    if (itemIndex == menuIndex) {
-      display.print("> "); // Highlight the current selection
+void displayCursor() {
+  // Create a simple cursor (">") that moves with button presses
+  
+  // Updated menu items
+  String menuOptions[] = {"1. Flame Sensor", "2. Gas Sensor", "3. DHT22 Sensor", "4. Dust Sensor"};
+
+  // Loop through and draw the cursor
+  for (int i = 0; i < menuItems; i++) {
+    if (i == menuIndex) {
+      display.setTextColor(SH110X_BLACK, SH110X_WHITE);  // Invert text color for selected item
+      display.setCursor(0, 30 + i * 8);  // Reduced gap (y = 30 instead of 50)
+      display.print("> "); // Display the cursor symbol
+      display.println(menuOptions[i]);  // Show the menu option
     } else {
-      display.print("  ");
+      display.setTextColor(SH110X_WHITE);  // Regular text color
+      display.setCursor(0, 30 + i * 8);  // Reduced gap (y = 30 instead of 50)
+      display.println(menuOptions[i]);  // Show the menu option without cursor
     }
-    display.println(menuItems[itemIndex]);
   }
-
-  // Draw the scroll bar on the right side with reduced width
-  int scrollBarWidth = 3;  // Reduced width of the scroll bar
-  int scrollBarHeight = (maxTextWidth * SCREEN_HEIGHT) / totalMenuItems;  // Size of the scroll bar based on text width
-  int scrollBarPosition = (menuIndex * SCREEN_HEIGHT) / totalMenuItems;  // Scroll bar position
-
-  // Draw the border of the scroll bar with the reduced width
-  display.drawRect(SCREEN_WIDTH - scrollBarWidth, 0, scrollBarWidth, SCREEN_HEIGHT, SH110X_WHITE);  // Scroll bar border
-  // Fill the scroll bar with the reduced width
-  display.fillRect(SCREEN_WIDTH - scrollBarWidth, scrollBarPosition, scrollBarWidth, scrollBarHeight, SH110X_WHITE);  // Scroll bar fill
-
-  display.display();
-}
-
-void showSubMenu(int index) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SH110X_WHITE);
-  display.setCursor(0, 0);
-
-  switch (index) {
-    case 0:
-      display.println("Temperature:");
-      display.print("Value: ");
-      display.print(readTemperature());
-      display.println(" C");
-      break;
-    case 1:
-      display.println("Fire Sensor:");
-      display.print("Value: ");
-      display.println(analogRead(FIRE_SENSOR));
-      break;
-    case 2:
-      display.println("Dust Sensor:");
-      display.print("Value: ");
-      display.println(analogRead(DUST_SENSOR));
-      break;
-    case 3:
-      display.println("Gas Sensor:");
-      display.print("Value: ");
-      display.println(analogRead(GAS_SENSOR));
-      break;
-    case 4:
-      display.println("Humidity:");
-      display.print("Value: ");
-      display.println("50%"); // Replace with actual humidity reading
-      break;
-    case 5:
-      display.println("Pressure:");
-      display.print("Value: ");
-      display.println("1013 hPa"); // Replace with actual pressure reading
-      break;
-  }
-
-  display.println("Press BACK to exit");
-  display.display();
-}
-
-float readTemperature() {
-  // Example: LM35 sensor. Adjust calculation based on your sensor.
-  int raw = analogRead(TEMP_SENSOR);
-  return raw * (5.0 / 1023.0) * 100.0;
 }
