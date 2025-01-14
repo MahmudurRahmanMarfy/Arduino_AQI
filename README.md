@@ -982,6 +982,7 @@ float readTemperature() {
 }
 
 ## Menu
+```cpp
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Wire.h>
@@ -1174,3 +1175,4 @@ void displayCursor() {
     }
   }
 }
+```
